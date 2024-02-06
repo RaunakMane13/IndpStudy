@@ -48,6 +48,10 @@ MODIFY COLUMN publishedAt DATE;
 ALTER TABLE youtube_trending_data
 MODIFY COLUMN trending_data DATE;
 
+-- Alter thumbnail_link column to BLOB type.
+ALTER TABLE youtube_trending_data
+MODIFY COLUMN thumbnail_link BLOB;
+
 -- Create table region_coordinates.
 DROP TABLE IF EXISTS region_coordinates;
 CREATE TABLE region_coordinates (
