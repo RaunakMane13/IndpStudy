@@ -283,16 +283,12 @@ df.shape
 
 csv_file_path = 'C:\\Users\\rauna\\Downloads\\IS Dataset raw\\merged_data_cleaned.csv'
 
-# Read the CSV file using pandas
 df = pd.read_csv(csv_file_path)
 
 
 # In[68]:
 
 
-import pandas as pd
-
-# Assuming 'df' is your DataFrame and 'your_column_name' is the name of the column you want to check
 filtered_df = df[df['tags'].str.endswith('\\')]
 
 
