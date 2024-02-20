@@ -137,7 +137,7 @@ LINES TERMINATED BY '\n'
 IGNORE 1 LINES
 (id,title);
 
--- geospatial queries to find records within a range.
+-- Geospatial queries to find records within a range.
 SELECT id, region, ST_Distance_Sphere( POINT(longitude, latitude), POINT(-122.4194, 37.7749)) AS distance_in_meters
 FROM region_coordinates
 HAVING distance_in_meters <= 10000
