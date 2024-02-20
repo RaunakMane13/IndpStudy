@@ -33,22 +33,22 @@ SET GLOBAL net_read_timeout = 120;
 SET GLOBAL net_write_timeout = 120;
 
 -- Load data in table.
-LOAD DATA INFILE 'C:\\ProgramData\\MySQL\\MySQL Server 8.0\\Uploads\\merged_data_cleaned.csv'
+LOAD DATA INFILE 'C:\\ProgramData\\MySQL\\MySQL Server 8.0\\Uploads\\merged_data_cleaned_withfk.csv'
 INTO TABLE youtube_trending_data
 FIELDS TERMINATED BY ','
 OPTIONALLY ENCLOSED BY '"'
 LINES TERMINATED BY '\n'
 IGNORE 1 LINES
 (video_id, title, publishedAt, channelId, channelTitle, categoryId, trending_date, tags, view_count, likes, dislikes, comment_count, thumbnail_link, comments_disabled, ratings_disabled, description, Region, region_fk); 
+-- (2 min 14.63 sec) for data load.
 
 -- Alter publishedAt and trending_date column to date type.
 ALTER TABLE youtube_trending_data
 MODIFY COLUMN publishedAt DATE;
 
 ALTER TABLE youtube_trending_data
-MODIFY COLUMN trending_data DATE;
+MODIFY COLUMN trending_date DATE;
 
--- Alter thumbnail_link column to BLOB type.
 ALTER TABLE youtube_trending_data
 MODIFY COLUMN thumbnail_link BLOB;
 
@@ -56,29 +56,24 @@ MODIFY COLUMN thumbnail_link BLOB;
 DROP TABLE IF EXISTS region_coordinates;
 CREATE TABLE region_coordinates (
     id INT AUTO_INCREMENT PRIMARY KEY,
-    region VARCHAR(2),
-    geo_lat DECIMAL(9,6),
-    geo_long DECIMAL(9,6)
+    latitude DECIMAL(9,6),
+    longitude DECIMAL(9,6),
+    region VARCHAR(2)
 );
 
 -- Add data in region_coordinates table.
-INSERT INTO region_coordinates (region, geo_lat, geo_long) VALUES
--- India: 
-('IN', 34.1526, 77.5771),  -- Leh, a far north point in India
-('IN', 8.0883, 77.5385),   -- Kanyakumari, the southern tip of India
-('IN', 20.593684, 78.962880),  -- India Point 1
--- United States:
-('US', 47.6062, -122.3321),-- Seattle, WA (Northwest)
-('US', 25.7617, -80.1918), -- Miami, FL (Southeast)
-('US', 39.090240, -94.712891), -- US Point 3
--- Great Britain: 
-('GB', 57.4788, -4.2247),  -- Inverness, Scotland
-('GB', 50.9097, -1.4044),  -- Southampton, southern England
-('GB', 56.378051, -2.435973),  -- GB Point 3
--- Canada: 
-('CA', 49.2827, -123.1207),-- Vancouver, BC (West)
-('CA', 46.8139, -71.2080), -- Quebec City, QC (East)
-('CA', 57.130366, -107.346771);-- CA Point 2
+LOAD DATA INFILE 'C:\\ProgramData\\MySQL\\MySQL Server 8.0\\Uploads\\merged_region_coordinates.csv'
+INTO TABLE region_coordinates
+FIELDS TERMINATED BY ','
+OPTIONALLY ENCLOSED BY '"'
+LINES TERMINATED BY '\n'
+IGNORE 1 LINES
+(latitude, longitude, region);
+
+-- Add foreign key constraints after adding data.
+ALTER TABLE youtube_trending_data
+ADD CONSTRAINT fk_region_coordinates
+FOREIGN KEY (region_fk) REFERENCES region_coordinates(id);
 
 -- Drop region column to remove redundancy. 
 ALTER TABLE youtube_trending_data
@@ -89,14 +84,24 @@ SELECT Count(*) FROM youtube_trending_data
 JOIN region_coordinates ON youtube_trending_data.region_fk = region_coordinates.id
 WHERE region_coordinates.region = 'IN';
 
-SELECT COUNT(*) FROM youtube_trending_data yt
+SELECT * FROM youtube_trending_data yt
 INNER JOIN region_coordinates rc ON yt.region_fk = rc.id
 WHERE rc.region = 'IN';
 
--- Create index to optimize queries
+-- Create index for frequently queried columns to optimize them.
 CREATE INDEX idx_region_fk ON youtube_trending_data(region_fk);
 CREATE INDEX idx_id ON region_coordinates(id);
 CREATE INDEX idx_region ON region_coordinates(region);
+
+ALTER TABLE youtube_trending_data
+DROP INDEX idx_region_fk;
+
+ALTER TABLE region_coordinates
+DROP INDEX idx_region;
+
+ALTER TABLE region_coordinates
+DROP INDEX idx_id;
+SHOW CREATE TABLE youtube_trending_data;
 
 -- Queries to find non-ascii containing records
 SELECT * FROM youtube_trending_data
@@ -134,3 +139,27 @@ CREATE INDEX idx_has_non_ascii ON youtube_trending_data(has_non_ascii);
 SELECT *
 FROM youtube_trending_data
 WHERE has_non_ascii = TRUE;
+
+SELECT COUNT(*),region from region_coordinates
+group by region;
+
+SELECT MIN(categoryId) AS MinValue, MAX(categoryId) AS MaxV FROM youtube_trending_data;
+
+-- Create category table.
+DROP TABLE IF EXISTS category;
+CREATE TABLE category (
+    id INT PRIMARY KEY,
+    title VARCHAR(255)
+);
+LOAD DATA INFILE 'C:\\ProgramData\\MySQL\\MySQL Server 8.0\\Uploads\\merged_category_cleaned.csv'
+INTO TABLE category
+FIELDS TERMINATED BY ','
+OPTIONALLY ENCLOSED BY '"'
+LINES TERMINATED BY '\n'
+IGNORE 1 LINES
+(id, title);
+
+-- add foreign key constraints after adding data.
+ALTER TABLE youtube_trending_data
+ADD FOREIGN KEY (categoryId) REFERENCES category(id);
+--  (2 min 7.85 sec) time taken.
