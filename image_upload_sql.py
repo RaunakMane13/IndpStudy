@@ -10,7 +10,6 @@ db_name = 'ISmongo'
 client = MongoClient(mongo_uri)
 db = client[db_name]
 
-# Initialize GridFS
 fs = gridfs.GridFS(db)
 
 # Folder containing your images
