@@ -27,13 +27,27 @@ CREATE TABLE youtube_trending_data (
     region_fk INT
 );
 
+ALTER TABLE youtube_trending_data
+ADD COLUMN image_id BIGINT NOT NULL;
+
+SET @counter = 0;
+UPDATE youtube_trending_data
+SET image_id = (@counter:= @counter +1)
+ORDER BY id;
+
+ALTER TABLE youtube_trending_data
+ADD CONSTRAINT fk_image_id
+FOREIGN KEY (image_id) REFERENCES images(id);
+
+SELECT * FROM youtube_trending_data;
 -- Trying to increase timeout for timeout error.
 SHOW VARIABLES LIKE "secure_file_priv";
 SET GLOBAL net_read_timeout = 120;
 SET GLOBAL net_write_timeout = 120;
 
+
 -- Load data in table.
-LOAD DATA INFILE 'C:\\ProgramData\\MySQL\\MySQL Server 8.0\\Uploads\\merged_data_cleaned.csv'
+LOAD DATA LOCAL INFILE '/home/student/Downloads/merged_data_cleaned_withfk.csv'
 INTO TABLE youtube_trending_data
 FIELDS TERMINATED BY ','
 OPTIONALLY ENCLOSED BY '"'
@@ -52,19 +66,24 @@ MODIFY COLUMN trending_data DATE;
 DROP TABLE IF EXISTS region_coordinates;
 CREATE TABLE region_coordinates (
     id INT AUTO_INCREMENT PRIMARY KEY,
-    geo_lat DECIMAL(9,6),
-    geo_long DECIMAL(9,6),
+    latitude DECIMAL(9,6),
+    longitude DECIMAL(9,6),
     region VARCHAR(2)
 );
 
 -- Add data in region_coordinates table.
-LOAD DATA INFILE 'C:\\ProgramData\\MySQL\\MySQL Server 8.0\\Uploads\\merged_region_coordinates.csv'
-INTO TABLE youtube_trending_data
+LOAD DATA LOCAL INFILE '/home/student/Downloads/merged_region_coordinates.csv'
+INTO TABLE region_coordinates
 FIELDS TERMINATED BY ','
 OPTIONALLY ENCLOSED BY '"'
 LINES TERMINATED BY '\n'
 IGNORE 1 LINES
 (latitude, longitude, region);
+
+-- Add foreign key constraints.
+ALTER TABLE youtube_trending_data
+ADD CONSTRAINT fk_region_coordinates
+FOREIGN KEY (region_fk) REFERENCES region_coordinates(id);
 
 -- Drop region column to remove redundancy. 
 ALTER TABLE youtube_trending_data
@@ -129,15 +148,20 @@ CREATE TABLE category (
 );
 
 -- Add data in region_coordinates table.
-LOAD DATA INFILE 'C:\\ProgramData\\MySQL\\MySQL Server 8.0\\Uploads\\merged_region_coordinates.csv'
-INTO TABLE youtube_trending_data
+LOAD DATA LOCAL INFILE '/home/student/Downloads/merged_category_cleaned.csv'
+INTO TABLE category
 FIELDS TERMINATED BY ','
 OPTIONALLY ENCLOSED BY '"'
 LINES TERMINATED BY '\n'
 IGNORE 1 LINES
 (id,title);
 
--- Geospatial queries to find records within a range.
+-- Add foreign key constraints.
+ALTER TABLE youtube_trending_data
+ADD CONSTRAINT fk_category
+FOREIGN KEY (categoryId) REFERENCES category(id);
+
+-- geospatial queries to find records within a range.
 SELECT id, region, ST_Distance_Sphere( POINT(longitude, latitude), POINT(-122.4194, 37.7749)) AS distance_in_meters
 FROM region_coordinates
 HAVING distance_in_meters <= 10000
@@ -153,3 +177,18 @@ SELECT yt.video_id, yt.title, rc.region, rc.latitude, rc.longitude
 FROM youtube_trending_data AS yt
 JOIN region_coordinates AS rc ON yt.region_fk = rc.id
 WHERE rc.latitude BETWEEN 30.0 AND 60.0 AND rc.longitude BETWEEN -130.0 AND -100.0 AND rc.region = 'CA';
+
+DROP TABLE IF EXISTS images;
+CREATE TABLE images(
+	image_id INT PRIMARY KEY,
+    image BLOB
+);
+
+ALTER TABLE images 
+CHANGE COLUMN image_id id BIGINT;
+
+SHOW VARIABLES LIKE 'cte_max_recursion_depth';
+SET @@cte_max_recursion_depth = 2000;
+
+-- LEFT JOIN images on youtube_trending_data.image_id= images.id;
+
