@@ -27,6 +27,15 @@ CREATE TABLE youtube_trending_data (
     region_fk INT
 );
 
+-- Load data in table.
+LOAD DATA LOCAL INFILE '/home/student/Downloads/merged_data_cleaned_withfk.csv'
+INTO TABLE youtube_trending_data
+FIELDS TERMINATED BY ','
+OPTIONALLY ENCLOSED BY '"'
+LINES TERMINATED BY '\n'
+IGNORE 1 LINES
+(video_id, title, publishedAt, channelId, channelTitle, categoryId, trending_date, tags, view_count, likes, dislikes, comment_count, thumbnail_link, comments_disabled, ratings_disabled, description, Region, region_fk); 
+
 ALTER TABLE youtube_trending_data
 ADD COLUMN image_id BIGINT NOT NULL;
 
@@ -39,21 +48,10 @@ ALTER TABLE youtube_trending_data
 ADD CONSTRAINT fk_image_id
 FOREIGN KEY (image_id) REFERENCES images(id);
 
-SELECT * FROM youtube_trending_data;
 -- Trying to increase timeout for timeout error.
 SHOW VARIABLES LIKE "secure_file_priv";
 SET GLOBAL net_read_timeout = 120;
 SET GLOBAL net_write_timeout = 120;
-
-
--- Load data in table.
-LOAD DATA LOCAL INFILE '/home/student/Downloads/merged_data_cleaned_withfk.csv'
-INTO TABLE youtube_trending_data
-FIELDS TERMINATED BY ','
-OPTIONALLY ENCLOSED BY '"'
-LINES TERMINATED BY '\n'
-IGNORE 1 LINES
-(video_id, title, publishedAt, channelId, channelTitle, categoryId, trending_date, tags, view_count, likes, dislikes, comment_count, thumbnail_link, comments_disabled, ratings_disabled, description, Region, region_fk); 
 
 -- Alter publishedAt and trending_date column to date type.
 ALTER TABLE youtube_trending_data
@@ -178,6 +176,7 @@ FROM youtube_trending_data AS yt
 JOIN region_coordinates AS rc ON yt.region_fk = rc.id
 WHERE rc.latitude BETWEEN 30.0 AND 60.0 AND rc.longitude BETWEEN -130.0 AND -100.0 AND rc.region = 'CA';
 
+-- Create images table.
 DROP TABLE IF EXISTS images;
 CREATE TABLE images(
 	image_id INT PRIMARY KEY,
@@ -186,9 +185,3 @@ CREATE TABLE images(
 
 ALTER TABLE images 
 CHANGE COLUMN image_id id BIGINT;
-
-SHOW VARIABLES LIKE 'cte_max_recursion_depth';
-SET @@cte_max_recursion_depth = 2000;
-
--- LEFT JOIN images on youtube_trending_data.image_id= images.id;
-
