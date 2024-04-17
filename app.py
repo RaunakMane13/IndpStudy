@@ -1,110 +1,162 @@
-from flask import Flask, render_template_string, request, send_file
-from pymongo import MongoClient
-import gridfs
-from bson.objectid import ObjectId
-import io
-
+from markupsafe import escape
+from flask import Flask, request, render_template_string, redirect, url_for, session, flash
+from werkzeug.utils import secure_filename
+import mysql.connector
+import csv
+import os
 app = Flask(__name__)
+app.secret_key = 'your_very_secret_key'
+app.config['UPLOAD_FOLDER'] = 'uploads'
+ALLOWED_EXTENSIONS = {'csv'}
 
-@app.route('/')
-def show_titles():
-    page = int(request.args.get('page', 1))
-    per_page = 10
-    skip = (page - 1) * per_page
+@app.route('/', methods=['GET', 'POST'])
+def root_login():
+    if request.method == 'POST':
+        root_username = request.form['username']
+        root_password = request.form['password']
+        try:
+            # Attempt to establish a connection using root credentials
+            connection = mysql.connector.connect(host='localhost', user=root_username, password=root_password)
+            if connection.is_connected():
+                cursor = connection.cursor()
+                cursor.execute("SHOW DATABASES")
+                databases = [db[0] for db in cursor.fetchall()]
+                cursor.close()
+                connection.close()
+                session['root_credentials'] = {'username': root_username, 'password': root_password}
+                session['databases'] = databases
+                return redirect(url_for('select_database'))
+        except mysql.connector.Error as err:
+            # Detailed error message might help diagnose the issue
+            return f"Root login failed: {str(err)}"
+    return render_template_string("""
+        <style>
+            input[type=text], input[type=password], input[type=submit] {
+                padding: 10px;
+                margin: 10px 0;
+                border: 1px solid #ddd;
+                border-radius: 4px;
+            }
+            input[type=submit] {
+                background-color: #4CAF50;
+                color: white;
+                cursor: pointer;
+            }
+            input[type=submit]:hover {
+                background-color: #45a049;
+            }
+        </style>
+        <form method="post">
+            Root Username: <input type="text" name="username"><br>
+            Root Password: <input type="password" name="password"><br>
+            <input type="submit" value="Login">
+        </form>
+    """)
+
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+
+@app.route('/select_database', methods=['GET', 'POST'])
+def select_database():
+    if 'databases' not in session:
+        return redirect(url_for('root_login'))
     
-    client = MongoClient('mongodb://localhost:27017/')
-    db = client['ISmongo']
-    collection = db['yt_data']
-
-    total_titles = collection.count_documents({})
-    documents = collection.find({}, {'title_x': 1}).skip(skip).limit(per_page)
-    titles = [(doc.get('title_x', 'No title found'), str(doc['_id']), idx + skip) for idx, doc in enumerate(documents)]
-
-    start_number = skip + 1
-    total_pages = (total_titles + per_page - 1) // per_page
-
-    navigation_html = '<div style="padding: 20px;">'
-    if page > 1:
-        navigation_html += f'<a href="/?page={page - 1}">&laquo; Previous</a>'
-    if page < total_pages:
-        navigation_html += f'<a href="/?page={page + 1}" style="margin-left: 20px;">Next &raquo;</a>'
-    navigation_html += '</div>'
+    # Handle selection of existing database and direct redirection to phpMyAdmin
+    if request.method == 'POST' and 'database' in request.form:
+        selected_database = request.form['database']
+        if selected_database in session['databases']:
+            session['selected_database'] = selected_database
+            # Construct the phpMyAdmin URL and redirect
+            phpmyadmin_url = f"http://localhost/phpmyadmin/index.php?db={session['selected_database']}"
+            return redirect(phpmyadmin_url)
+    
+    databases_html = '<form method="post">'
+    for db in session['databases']:
+        databases_html += f'<button type="submit" name="database" value="{escape(db)}">{escape(db)}</button><br>'
+    databases_html += '</form>'
+    
+    # Append the form for new database creation and CSV upload to databases_html
+    databases_html += '''
+        <hr>
+        <form method="post" enctype="multipart/form-data">
+            New Database Name: <input type="text" name="new_database" required><br>
+            CSV File: <input type="file" name="file" accept=".csv" required><br>
+            <input type="submit" value="Create Database and Upload CSV">
+        </form>
+    '''
     
     return render_template_string('''
-        <html>
-            <head>
-                <title>Video Titles List</title>
-                <style>
-                    body { font-family: Arial, sans-serif; }
-                    li { margin: 5px 0; }
-                    a { text-decoration: none; color: blue; }
-                    a:hover { text-decoration: underline; }
-                    img { width: 100px; }
-                </style>
-            </head>
-            <body>
-                <h2>Video Titles from MongoDB</h2>
-                <ol start="{{ start_number }}">
-                    {% for title, id, idx in titles %}
-                        <li><a href="/details/{{ id }}">{{ title }}</a> - {{ idx }}</li>
-                    {% endfor %}
-                </ol>
-                {{ navigation_html|safe }}
-            </body>
-        </html>
-    ''', titles=titles, navigation_html=navigation_html, start_number=start_number)
+        {{ databases_html|safe }}
+        <style>
+            input, button[type=submit] {
+                padding: 10px;
+                margin: 10px 0;
+                border: 1px solid #ddd;
+                border-radius: 4px;
+            }
+            button[type=submit], input[type=submit] {
+                background-color: #4CAF50;
+                color: white;
+                cursor: pointer;
+                border: none;
+  }
+            button[type=submit]:hover, input[type=submit]:hover {
+                background-color: #45a049;
+            }
+            form {
+                margin-top: 20px;
+            }
+        </style>
+    ''', databases_html=databases_html)
 
-@app.route('/details/<record_id>')
-def show_details(record_id):
-    client = MongoClient('mongodb://localhost:27017/')
-    db = client['ISmongo']
-    collection = db['yt_data']
-    fs = gridfs.GridFS(db)
 
-    document = collection.find_one({'_id': ObjectId(record_id)})
-    
-    # Assuming the record's order number is somehow reflected in or calculable from the document
-    # Here, it is assumed to be a direct pass; adjust based on your application's logic
-    image_num = document.get('record_number', 1)  # Adjust for the offset
-    
-    image_filename = f'image_{image_num}.jpg'
-    
-    # Check if the image exists in GridFS and construct the image URL or use a placeholder
-    if fs.exists(filename=image_filename):
-        image_url = f"/image/{image_filename}"
-    else:
-        image_url = "/static/image_not_found.jpg"  # Ensure you have this placeholder image
-    
-    details_html = '<h2>Record Details</h2><ul>'
-    if document:
-        for key, value in document.items():
-            details_html += f'<li><strong>{key}:</strong> {value}</li>'
-        details_html += f'<li><img src="{image_url}" alt="Thumbnail"></li>'
-    else:
-        details_html = '<p>Record not found.</p>'
-    
-    return render_template_string('''
-        <html>
-            <head><title>Record Details</title></head>
-            <body>
-                {{ details_html|safe }}
-                <a href="/">Back to List</a>
-            </body>
-        </html>
-    ''', details_html=details_html)
 
-@app.route('/image/<filename>')
-def image(filename):
-    client = MongoClient('mongodb://localhost:27017/')
-    db = client['ISmongo']
-    fs = gridfs.GridFS(db)
+def create_database_and_table_from_csv(root_credentials, database_name, file_path):
+    connection = mysql.connector.connect(**root_credentials)
+    cursor = connection.cursor()
+    
+    # Create database
+    cursor.execute(f"CREATE DATABASE IF NOT EXISTS `{database_name}`")
+    connection.commit()
+    
+    cursor.execute(f"USE `{database_name}`")
+    
+    # Read CSV file and prepare for table creation and data insertion
+    with open(file_path, newline='', encoding='utf-8') as csvfile:
+        reader = csv.reader(csvfile)
+        headers = next(reader)  # Assuming the first row is headers
+        
+        # Determine data types from the first row of data
+        first_row = next(reader, None)
+        data_types = ['FLOAT' if value.replace('.', '', 1).isdigit() else 'INT' if value.isdigit() else 'VARCHAR(255)' for value in first_row]
+        
+        # Construct CREATE TABLE statement
+        table_name = os.path.splitext(os.path.basename(file_path))[0].replace('-', '_').replace(' ', '_')
+        column_definitions = ', '.join([f"`{header}` {data_type}" for header, data_type in zip(headers, data_types)])
+        create_table_query = f"CREATE TABLE IF NOT EXISTS `{table_name}` ({column_definitions})"
+        cursor.execute(create_table_query)
+       
+        # Prepare for data insertion
+        insert_query = f"INSERT INTO `{table_name}` ({', '.join([f'`{header}`' for header in headers])}) VALUES ({', '.join(['%s' for _ in headers])})"
+        
+        # Reset file pointer and skip header
+        csvfile.seek(0)
+        next(reader)
+        
+        # Insert data rows
+        for row in reader:
+            cursor.execute(insert_query, row)
+        
+        connection.commit()
 
-    try:
-        grid_out = fs.get_last_version(filename=filename)
-        return send_file(io.BytesIO(grid_out.read()), mimetype='image/jpeg')
-    except gridfs.NoFile:
-        return send_file('static/image_not_found.jpg', mimetype='image/jpeg')  # Ensure this placeholder
+    cursor.close()
+    connection.close()
+
+if not os.path.exists(app.config['UPLOAD_FOLDER']):
+    os.makedirs(app.config['UPLOAD_FOLDER'])
 
 if __name__ == '__main__':
     app.run(debug=True)
+
 
